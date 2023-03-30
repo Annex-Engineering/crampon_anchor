@@ -17,13 +17,15 @@ Checkout the repository and load your device using:
 ```
 
 After the update completes, the device should be available as:
-`/dev/serial/by-id/usb-Annex_Engineering_Crampon_<SERIAL>-if00`.
+`/dev/serial/by-id/usb-Annex_Engineering_Crampon-if00`.
+
+Devices running an older build may have a serial number in the path.
 
 ## Klipper Config
 
 ```ini
 [mcu crampon]
-serial: /dev/serial/by-id/usb-Annex_Engineering_Crampon_<SERIAL>-if00
+serial: /dev/serial/by-id/usb-Annex_Engineering_Crampon-if00
 
 [adxl345]
 cs_pin: crampon:CS
@@ -59,4 +61,9 @@ To enter the bootloader and program the device, run:
 ```
 
 After the update completes, the device should be available as:
-`/dev/serial/by-id/usb-Annex_Engineering_Crampon_<SERIAL>-if00`.
+`/dev/serial/by-id/usb-Annex_Engineering_Crampon-if00`.
+
+To enable the serial number in the device path, simply enable the `serialnumber` cargo feature using the following command to build:
+```
+% cargo build --release --features serialnumber
+```

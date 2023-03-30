@@ -14,6 +14,10 @@ usb-device = "0.2.9"
 usbd-serial = "0.1.1"
 anchor = { git = "ssh://git@github.com/Annex-engineering/anchor.git" }
 
+[features]
+default = []
+serialnumber = []
+
 [build-dependencies]
 anchor_codegen = { git = "ssh://git@github.com/Annex-engineering/anchor.git" }
 

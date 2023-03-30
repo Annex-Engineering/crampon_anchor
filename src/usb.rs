@@ -79,13 +79,15 @@ impl CramponUsb {
         };
 
         let serial = CdcAcmClass::new(allocator, USB_MAX_PACKET_SIZE as u16);
+
         let bus = UsbDeviceBuilder::new(allocator, UsbVidPid(0x0483, 0xaeca))
             .composite_with_iads()
             .manufacturer("Annex Engineering")
             .product("Crampon")
-            .serial_number(crate::serialnumber::get_serial())
-            .device_class(USB_CLASS_CDC)
-            .build();
+            .device_class(USB_CLASS_CDC);
+        #[cfg(feature = "serialnumber")]
+        let bus = bus.serial_number(crate::serialnumber::get_serial());
+        let bus = bus.build();
 
         CramponUsb(Mutex::new(RefCell::new(CramponUsbDevice {
             bus,
