@@ -41,6 +41,8 @@ impl RegAddr {
     const AF_READ: u8 = 0x80;
 }
 
+const DEVICE_ID: u8 = 0xe5;
+
 pub struct SampleBuffer<const N: usize> {
     count: usize,
     buffer: [u8; N],
@@ -49,6 +51,7 @@ pub struct SampleBuffer<const N: usize> {
 pub struct Adxl<SPI, PIN> {
     spi: SPI,
     cs: PIN,
+    dev_id: u8,
     oid: u8,
     running: bool,
     start_time: Option<InstantShort>,
@@ -106,6 +109,7 @@ where
         let mut adxl = Adxl {
             spi,
             cs,
+            dev_id: 0,
             oid: 0,
             running: false,
             start_time: None,
@@ -117,9 +121,16 @@ where
         };
 
         // prime sensor with devid read
-        adxl.send(&[RegAddr::AF_READ | RegAddr::DEVID, 0]);
+        let mut data = [RegAddr::AF_READ | RegAddr::DEVID, 0];
+        adxl.send(&data);
+        let resp = adxl.transfer(&mut data);
+        adxl.dev_id = resp[1];
 
         adxl
+    }
+
+    pub fn detected(&self) -> bool {
+        self.dev_id == DEVICE_ID
     }
 
     fn start(&mut self, clock: InstantShort) {

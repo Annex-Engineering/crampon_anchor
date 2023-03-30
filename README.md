@@ -21,6 +21,12 @@ After the update completes, the device should be available as:
 
 Devices running an older build may have a serial number in the path.
 
+## LED States
+
+Off: No Firmware or Bootloader Active
+On: Firmware Active
+Rapid Flashing: Firmware Active, ADXL Communication Failure
+
 ## Klipper Config
 
 ```ini

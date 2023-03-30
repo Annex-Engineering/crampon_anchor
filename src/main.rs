@@ -34,6 +34,8 @@ const BOOTLOADER_FLAG_ADDR: u32 = 0x2000_6ffc; // 0 and max get clobbered at ini
 const BOOTLOADER_FLAG_MAGIC: u32 = 0xf026_69ef;
 const BOOTLOADER_ST_ADDR: u32 = 0x1fff_0000;
 
+const LED_TOGGLE_TICKS: u32 = CLOCK_FREQ / 8;
+
 type CramponAdxl = adxl345::Adxl<
     Spi<
         SPI1,
@@ -67,6 +69,7 @@ impl State {
 pub struct Crampon {
     core: CorePeripherals,
     pin_led: Pin<Output<PushPull>, H8, 'A', 15>,
+    led_tick_time: Option<clock::InstantShort>,
     state: State,
 }
 
@@ -149,6 +152,7 @@ impl Crampon {
             crampon: Crampon {
                 core,
                 pin_led,
+                led_tick_time: None,
                 state: State::new(adxl),
             },
             global: CramponGlobal {
@@ -188,6 +192,19 @@ impl Crampon {
 
     fn run_adxl(&mut self, t: clock::InstantShort) {
         self.state.adxl.run(t);
+    }
+
+    fn run_led(&mut self, t: clock::InstantShort) {
+        if !self.state.adxl.detected() {
+            if let Some(tick) = self.led_tick_time {
+                if t.after(tick) {
+                    self.pin_led.toggle();
+                    self.led_tick_time = Some(tick + LED_TOGGLE_TICKS);
+                }
+            } else {
+                self.led_tick_time = Some(t + LED_TOGGLE_TICKS);
+            }
+        }
     }
 }
 
@@ -246,6 +263,7 @@ impl CramponParts {
             crampon_global().usb.poll();
             self.crampon.run_usb(&mut receive_buffer);
             self.crampon.run_adxl(crampon_global().clock.low());
+            self.crampon.run_led(crampon_global().clock.low());
         }
     }
 }

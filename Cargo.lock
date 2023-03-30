@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "crampon_anchor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anchor",
  "anchor_codegen",
