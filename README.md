@@ -12,7 +12,7 @@ class PC using cross compilers, so a pre-built binary is provided for ease of us
 
 Checkout the repository and load your device using:
 ```
-% git checkout https://github.com/Annex-Engineering/crampon_anchor.git
+% git clone https://github.com/Annex-Engineering/crampon_anchor.git
 % ./crampon_anchor/update.sh
 ```
 
