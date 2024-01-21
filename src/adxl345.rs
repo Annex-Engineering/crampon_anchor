@@ -42,6 +42,7 @@ impl RegAddr {
 }
 
 const DEVICE_ID: u8 = 0xe5;
+const SAMPLE_LEN_BYTES: usize = 5;
 
 pub struct SampleBuffer<const N: usize> {
     count: usize,
@@ -53,8 +54,6 @@ pub struct Adxl<SPI, PIN> {
     cs: PIN,
     dev_id: u8,
     oid: u8,
-    running: bool,
-    start_time: Option<InstantShort>,
     wake_time: Option<InstantShort>,
     rest_ticks: u32,
     sequence: u16,
@@ -71,7 +70,7 @@ impl<const N: usize> SampleBuffer<N> {
     }
 
     pub fn full(&self) -> bool {
-        self.count + 5 > N
+        self.count + SAMPLE_LEN_BYTES > N
     }
 
     pub fn empty(&self) -> bool {
@@ -96,7 +95,7 @@ impl<const N: usize> SampleBuffer<N> {
         self.buffer[self.count + 2] = d[5];
         self.buffer[self.count + 3] = (d[2] & 0x1f) | (d[6] << 5);
         self.buffer[self.count + 4] = (d[4] & 0x1f) | ((d[6] << 2) & 0x60);
-        self.count += 5;
+        self.count += SAMPLE_LEN_BYTES;
     }
 }
 
@@ -111,8 +110,6 @@ where
             cs,
             dev_id: 0,
             oid: 0,
-            running: false,
-            start_time: None,
             wake_time: None,
             rest_ticks: 0,
             sequence: 0,
@@ -133,43 +130,16 @@ where
         self.dev_id == DEVICE_ID
     }
 
-    fn start(&mut self, clock: InstantShort) {
-        self.cs.set_low().ok();
-        self.spi.write(&[RegAddr::POWER_CTL, 0x08]).ok();
-        self.cs.set_high().ok();
-        self.running = true;
-        self.sched_wake(clock);
+    fn start(&mut self, clock: InstantShort, rest_ticks: u32) {
+        self.limit = 0;
+        self.sequence = 0;
+        self.buffer.clear();
+        self.rest_ticks = rest_ticks;
+        self.wake_time = Some(clock + rest_ticks);
     }
 
-    fn stop(&mut self, clock: &clock::Clock) {
-        self.running = false;
+    fn stop(&mut self) {
         self.wake_time = None;
-
-        let before = clock.low();
-        self.cs.set_low().ok();
-        self.spi.write(&[RegAddr::POWER_CTL, 0x00]).ok();
-        self.cs.set_high().ok();
-        let after = clock.low();
-
-        let mut msg = 0;
-        for _ in 0..33 {
-            self.cs.set_low().ok();
-            let mut msgo = [RegAddr::FIFO_STATUS | RegAddr::AF_READ, 0];
-            let msgi = self.spi.transfer(&mut msgo).ok().unwrap();
-            self.cs.set_high().ok();
-            let fifo = msgi[1] & 0x3F;
-            msg = msgi[1];
-            if fifo == 0 {
-                break;
-            } else if fifo <= 32 {
-                self.query();
-            }
-        }
-
-        if !self.buffer.empty() {
-            self.report();
-        }
-        self.send_status(before, after, msg);
     }
 
     fn send(&mut self, data: &[u8]) {
@@ -226,26 +196,26 @@ where
         let msgi = self.spi.transfer(&mut msgo).ok().unwrap();
         self.cs.set_high().ok();
         let after = clock.low();
-        self.send_status(before, after, msgi[1]);
+        let fifo_packed_len = (msgi[1] & 0x7F) as u32 * SAMPLE_LEN_BYTES as u32;
+        self.send_status(before, after, fifo_packed_len);
     }
 
-    fn send_status(&self, before: InstantShort, after: InstantShort, fifo: u8) {
+    fn send_status(&self, before: InstantShort, after: InstantShort, fifo: u32) {
         let delta = u32::from(after).wrapping_sub(u32::from(before));
         klipper_reply!(
-            adxl345_status,
+            sensor_bulk_status,
             oid: u8 = self.oid,
             clock: u32 = before.into(),
             query_ticks: u32 = delta,
             next_sequence: u16 = self.sequence,
-            buffered: u8 = self.buffer.count() as u8,
-            fifo: u8 = fifo,
-            limit_count: u16 = self.limit
+            buffered: u32 = self.buffer.count() as u32 + fifo,
+            possible_overflows: u16 = self.limit
         );
     }
 
     fn report(&mut self) {
         klipper_reply!(
-            adxl345_data,
+            sensor_bulk_data,
             oid: u8 = self.oid,
             sequence: u16 = self.sequence,
             data: &[u8] = self.buffer.contents()
@@ -254,36 +224,11 @@ where
         self.sequence += 1;
     }
 
-    fn sched_start(&mut self, clock: u32, rest_ticks: u32) {
-        self.running = false;
-        self.limit = 0;
-        self.sequence = 0;
-        self.buffer.clear();
-        self.rest_ticks = rest_ticks;
-        self.start_time = Some(InstantShort::new(clock));
-    }
-
-    fn sched_wake(&mut self, clock: InstantShort) {
-        self.wake_time = Some(clock + self.rest_ticks);
-    }
-
     pub fn run(&mut self, clock: InstantShort) {
-        if let Some(st) = self.start_time {
-            if clock.after(st) {
-                self.start_time = None;
-                self.start(clock);
-                return;
-            }
-        }
-
         if let Some(wt) = self.wake_time {
             if clock.after(wt) {
                 let rest = self.query();
-                self.wake_time = if self.running {
-                    Some(clock + rest)
-                } else {
-                    None
-                };
+                self.wake_time = Some(clock + rest);
             }
         }
     }
@@ -295,11 +240,11 @@ pub fn config_adxl345(context: &mut State, oid: u8, _spi_oid: u8) {
 }
 
 #[klipper_command]
-pub fn query_adxl345(context: &mut State, _oid: u8, clock: u32, rest_ticks: u32) {
+pub fn query_adxl345(context: &mut State, _oid: u8, rest_ticks: u32) {
     if rest_ticks != 0 {
-        context.adxl.sched_start(clock, rest_ticks);
+        context.adxl.start(crampon_global().clock.low(), rest_ticks);
     } else {
-        context.adxl.stop(&crampon_global().clock);
+        context.adxl.stop();
     }
 }
 
