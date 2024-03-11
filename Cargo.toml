@@ -1,7 +1,7 @@
 [package]
 authors = ["Matt Baker <baker.matt.j@gmail.com>"]
 name = "crampon_anchor"
-version = "0.1.1"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
